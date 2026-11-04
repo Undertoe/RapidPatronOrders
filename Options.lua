@@ -66,8 +66,12 @@ function Options:Build()
 	enable:SetPoint("TOPLEFT", description, "BOTTOMLEFT", -2, -18)
 	self.checkboxes[#self.checkboxes + 1] = enable
 
+	local unprofitable = CreateCheckbox(panel, L.OPTION_ALLOW_UNPROFITABLE, L.OPTION_ALLOW_UNPROFITABLE_DESC, "allowUnprofitable")
+	unprofitable:SetPoint("TOPLEFT", enable.description, "BOTTOMLEFT", -30, -10)
+	self.checkboxes[#self.checkboxes + 1] = unprofitable
+
 	local priorityHeader = CreateHeader(panel, L.OPTION_PRIORITY_HEADER)
-	priorityHeader:SetPoint("TOPLEFT", enable.description, "BOTTOMLEFT", -30, -24)
+	priorityHeader:SetPoint("TOPLEFT", unprofitable.description, "BOTTOMLEFT", -30, -24)
 	local priorityDescription = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
 	priorityDescription:SetPoint("TOPLEFT", priorityHeader, "BOTTOMLEFT", 0, -6)
 	priorityDescription:SetWidth(600)

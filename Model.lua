@@ -301,6 +301,9 @@ function Model.GetBlocker(order)
 	elseif order.needsConcentration and not ns.GetConfig("allowConcentration") then
 		-- "Allow concentration" gates spending it; such orders sink.
 		return L.REASON_CONCENTRATION_NOT_ALLOWED
+	elseif order.profit < 0 and not ns.GetConfig("allowUnprofitable") then
+		-- Uses the estimate even when some prices are missing.
+		return L.REASON_UNPROFITABLE_NOT_ALLOWED
 	elseif order.needsConcentration
 		and Model.GetCurrencyQuantity(order.plan.concentrationCurrencyID) < order.plan.concentrationCost then
 		return L.REASON_CONCENTRATION
@@ -396,9 +399,12 @@ local function SortValue(order, sortKey)
 	return order.profit
 end
 
--- Priority, highest first: your claimed order, craftable before blocked,
--- then the optional non-concentration / profitable tiers, then the column sort.
-function Model.Sort(orders, claimedOrderID)
+-- Priority, highest first: craftable before blocked, then the optional
+-- non-concentration / profitable tiers, then the column sort.
+-- "frozenRanks" (orderID string -> position) keeps the current on-screen order
+-- while a craft is in progress so rows never move under the mouse; orders not
+-- yet on screen go after them in normal priority order.
+function Model.Sort(orders, frozenRanks)
 	local sortKey = ns.GetConfig("sortKey")
 	local ascending = ns.GetConfig("sortAscending")
 	local preferNoConcentration = ns.GetConfig("prioritizeNonConcentration")
@@ -406,12 +412,17 @@ function Model.Sort(orders, claimedOrderID)
 
 	for _, order in ipairs(orders) do
 		order.blocker = Model.GetBlocker(order)
-		order.isClaimed = ns.IsSameOrderID(order.orderID, claimedOrderID)
+		order.frozenRank = frozenRanks and frozenRanks[tostring(order.orderID)] or nil
 	end
 
 	table.sort(orders, function(left, right)
-		if left.isClaimed ~= right.isClaimed then
-			return left.isClaimed
+		if frozenRanks then
+			local leftRank, rightRank = left.frozenRank, right.frozenRank
+			if leftRank and rightRank then
+				return leftRank < rightRank
+			elseif leftRank or rightRank then
+				return leftRank ~= nil
+			end
 		end
 		local leftBlocked, rightBlocked = left.blocker ~= nil, right.blocker ~= nil
 		if leftBlocked ~= rightBlocked then

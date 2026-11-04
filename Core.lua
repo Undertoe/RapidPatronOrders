@@ -7,6 +7,7 @@ ns.EMPTY = {}
 
 local DEFAULTS = {
 	allowConcentration = false,
+	allowUnprofitable = false,
 	prioritizeNonConcentration = true,
 	prioritizeProfitable = true,
 	sortKey = "profit",

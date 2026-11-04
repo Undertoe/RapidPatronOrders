@@ -7,6 +7,7 @@ local Model = ns.Model
 -- ones Blizzard's own order view makes.
 
 local BUSY_TIMEOUT = 15
+local BUSY_POLL_INTERVAL = 0.5
 -- Every button shares the same spot through the flow, so a short lockout stops
 -- a double-click from claiming and crafting in one go.
 local CLICK_LOCKOUT = 0.5
@@ -42,9 +43,24 @@ local function GetProfession()
 	return info and info.profession
 end
 
+-- True once the claimed-order state shows the pending action took effect.
+-- Response events are not always delivered for patron orders, so the lock is
+-- released from the observed state rather than waiting on them.
+local function IsBusyResolved(busy)
+	local claimed = Craft.GetClaimedOrder()
+	local isMine = claimed ~= nil and ns.IsSameOrderID(claimed.orderID, busy.orderID)
+	if busy.action == "claim" then
+		return isMine
+	elseif busy.action == "craft" then
+		return isMine and claimed.isFulfillable
+	end
+	-- "complete" and "release" finish when the order is no longer claimed.
+	return not isMine
+end
+
 local function GetBusy()
 	local busy = Craft.busy
-	if busy and GetTime() > busy.expiresAt then
+	if busy and (GetTime() > busy.expiresAt or IsBusyResolved(busy)) then
 		Craft.busy = nil
 		return nil
 	end
@@ -54,9 +70,13 @@ end
 local function SetBusy(orderID, action)
 	local busy = { orderID = orderID, action = action, expiresAt = GetTime() + BUSY_TIMEOUT }
 	Craft.busy = busy
-	C_Timer.After(BUSY_TIMEOUT + 0.1, function()
-		if Craft.busy == busy then
-			Craft.busy = nil
+	-- Re-check the state twice a second until the lock clears.
+	local ticker
+	ticker = C_Timer.NewTicker(BUSY_POLL_INTERVAL, function()
+		if Craft.busy ~= busy then
+			ticker:Cancel()
+		elseif not GetBusy() then
+			ticker:Cancel()
 			NotifyChanged()
 		end
 	end)
