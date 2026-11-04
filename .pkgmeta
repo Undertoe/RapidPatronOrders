@@ -1,0 +1,4 @@
+package-as: RapidPatronOrders
+
+ignore:
+  - README.md

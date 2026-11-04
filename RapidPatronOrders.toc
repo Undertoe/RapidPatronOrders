@@ -1,0 +1,16 @@
+## Interface: 120105
+## Title: Rapid Patron Orders
+## Notes: Profit-ranked patron crafting orders with one-click claim, craft, and complete buttons.
+## Author: Terry
+## Version: 0.1.0
+## Category: Professions
+## OptionalDeps: Blizzard_Professions, TradeSkillMaster, Auctionator, Auc-Advanced
+## SavedVariables: RapidPatronOrdersDB
+
+Locale.lua
+Core.lua
+Pricing.lua
+Model.lua
+Craft.lua
+Pane.lua
+Options.lua
