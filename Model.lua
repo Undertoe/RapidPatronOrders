@@ -79,21 +79,32 @@ end
 -- Returns the required slots we must fill ourselves, plus the reagents the
 -- patron already supplies (needed for accurate quality checks).
 local function CollectSlots(schematic, rawOrder)
+	local slotSchematics = schematic and schematic.reagentSlotSchematics or EMPTY
+	local schematicBySlot = {}
+	for _, slotSchematic in ipairs(slotSchematics) do
+		schematicBySlot[slotSchematic.slotIndex] = slotSchematic
+	end
+
+	-- Only patron reagents in quality (modified-reagent) slots go to the
+	-- quality check, using the recipe's data-slot index, the same set the
+	-- game's own order view sends. Plain basic reagents make it answer nil.
 	local coveredSlots = {}
 	local supplied = {}
 	for _, suppliedReagent in ipairs(rawOrder.reagents or EMPTY) do
-		if suppliedReagent.slotIndex then
-			coveredSlots[suppliedReagent.slotIndex] = true
+		local slotIndex = suppliedReagent.slotIndex
+		if slotIndex then
+			coveredSlots[slotIndex] = true
 		end
+		local slotSchematic = slotIndex and schematicBySlot[slotIndex]
 		local info = suppliedReagent.reagentInfo
 		local itemID = ReagentItemID(info)
-		if itemID and info.dataSlotIndex then
-			supplied[#supplied + 1] = NewReagent(itemID, info.dataSlotIndex, info.quantity or 0)
+		if itemID and slotSchematic and slotSchematic.dataSlotType == MUTABLE_SLOT then
+			supplied[#supplied + 1] = NewReagent(itemID, slotSchematic.dataSlotIndex, info.quantity or 0)
 		end
 	end
 
 	local slots = {}
-	for _, slotSchematic in ipairs(schematic and schematic.reagentSlotSchematics or EMPTY) do
+	for _, slotSchematic in ipairs(slotSchematics) do
 		if slotSchematic.required and not coveredSlots[slotSchematic.slotIndex] then
 			local slot = {
 				slotIndex = slotSchematic.slotIndex,
