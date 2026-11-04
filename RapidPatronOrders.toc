@@ -4,7 +4,7 @@
 ## Author: Terry
 ## Version: 0.1.0
 ## Category: Professions
-## IconTexture: Interface\Icons\INV_Scroll_03
+## IconTexture: 1097681
 ## OptionalDeps: Blizzard_Professions, TradeSkillMaster, Auctionator, Auc-Advanced
 ## SavedVariables: RapidPatronOrdersDB
 
