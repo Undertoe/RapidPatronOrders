@@ -489,39 +489,58 @@ local function CreateHeaderButton(parent, sortKey, label)
 	return header
 end
 
+-- A checkbox with its label to the right. The anchor arguments place the
+-- label, so checkboxes can chain leftward along one row.
+local function CreateToolbarCheckbox(toolbar, configKey, text, description, point, relativeTo, relativePoint, x, y)
+	local checkbox = CreateFrame("CheckButton", nil, toolbar, "UICheckButtonTemplate")
+	checkbox:SetSize(24, 24)
+	local label = toolbar:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+	label:SetText(text)
+	label:SetPoint(point, relativeTo, relativePoint, x, y)
+	checkbox:SetPoint("RIGHT", label, "LEFT", -2, 0)
+	checkbox:SetScript("OnClick", function(self)
+		ns.SetConfig(configKey, self:GetChecked())
+	end)
+	checkbox:SetScript("OnEnter", function(self)
+		ShowTooltip(self, function(tooltip)
+			tooltip:SetText(text)
+			tooltip:AddLine(description, 1, 1, 1, true)
+		end)
+	end)
+	checkbox:SetScript("OnLeave", HideTooltip)
+	checkbox:SetChecked(ns.GetConfig(configKey))
+	return checkbox
+end
+
 function Pane:BuildToolbar()
-	-- Right-aligned above the list, in the free space beside the order-type tabs.
+	-- Top-right of the pane: Refresh sits beside the order-type tabs, and the
+	-- toggles share one row above it, right-aligned, below the title bar.
 	local toolbar = CreateFrame("Frame", nil, self.root)
-	toolbar:SetSize(320, 24)
+	toolbar:SetSize(420, 50)
 	toolbar:SetPoint("BOTTOMRIGHT", self.root, "TOPRIGHT", -2, 4)
+	toolbar:SetFrameLevel(self.root:GetFrameLevel() + 20)
 
 	local refresh = CreateFrame("Button", nil, toolbar, "UIPanelButtonTemplate")
 	refresh:SetSize(70, 22)
-	refresh:SetPoint("RIGHT")
+	refresh:SetPoint("BOTTOMRIGHT")
 	refresh:SetText(L.REFRESH)
 	refresh:SetScript("OnClick", function()
 		Pane:RequestOrders()
 	end)
 	self.refreshButton = refresh
 
-	local checkbox = CreateFrame("CheckButton", nil, toolbar, "UICheckButtonTemplate")
-	checkbox:SetSize(24, 24)
-	local label = toolbar:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
-	label:SetText(L.OPTION_ALLOW_CONCENTRATION)
-	label:SetPoint("RIGHT", refresh, "LEFT", -12, 0)
-	checkbox:SetPoint("RIGHT", label, "LEFT", -2, 0)
-	checkbox:SetScript("OnClick", function(self)
-		ns.SetConfig("allowConcentration", self:GetChecked())
-	end)
-	checkbox:SetScript("OnEnter", function(self)
-		ShowTooltip(self, function(tooltip)
-			tooltip:SetText(L.OPTION_ALLOW_CONCENTRATION)
-			tooltip:AddLine(L.OPTION_ALLOW_CONCENTRATION_DESC, 1, 1, 1, true)
-		end)
-	end)
-	checkbox:SetScript("OnLeave", HideTooltip)
-	checkbox:SetChecked(ns.GetConfig("allowConcentration"))
-	self.concentrationCheckbox = checkbox
+	local concentration = CreateToolbarCheckbox(
+		toolbar, "allowConcentration", L.OPTION_ALLOW_CONCENTRATION, L.OPTION_ALLOW_CONCENTRATION_DESC,
+		"BOTTOMRIGHT", refresh, "TOPRIGHT", 0, 7
+	)
+	local unprofitable = CreateToolbarCheckbox(
+		toolbar, "allowUnprofitable", L.OPTION_ALLOW_UNPROFITABLE, L.OPTION_ALLOW_UNPROFITABLE_DESC,
+		"RIGHT", concentration, "LEFT", -14, 0
+	)
+	self.toolbarCheckboxes = {
+		allowConcentration = concentration,
+		allowUnprofitable = unprofitable,
+	}
 end
 
 function Pane:BuildFrame()
@@ -763,15 +782,22 @@ function Pane:Rebuild()
 	self:Render()
 end
 
-function Pane:Render()
+-- While an order is claimed or a server action is pending, rows keep their
+-- on-screen positions so repeated clicks on one spot hit the same order.
+-- "userResort" (a header click or option change) always re-sorts.
+function Pane:Render(userResort)
 	if not self.root then
 		return
 	end
-	local claimed = Craft.GetClaimedOrder()
-	Model.Sort(self.orders, claimed and claimed.orderID)
+	local craftInProgress = Craft.busy ~= nil or Craft.GetClaimedOrder() ~= nil
+	local frozenRanks = craftInProgress and not userResort and self.ranks or nil
+	Model.Sort(self.orders, frozenRanks)
+	local ranks = {}
 	for index, order in ipairs(self.orders) do
 		order.listIndex = index
+		ranks[tostring(order.orderID)] = index
 	end
+	self.ranks = ranks
 	self.scrollBox:SetDataProvider(CreateDataProvider(self.orders), ScrollBoxConstants.RetainScrollPosition)
 	self:UpdateHeaderArrows()
 	self:UpdateEmptyState()
@@ -919,18 +945,14 @@ function Pane:InstallEvents()
 	end)
 
 	ns.OnConfigChanged(function(key, value)
-		if key == "allowConcentration" then
-			if Pane.concentrationCheckbox then
-				Pane.concentrationCheckbox:SetChecked(value)
-			end
-			-- Concentration orders change between blocked and craftable, so resort.
-			if Pane.active then
-				Pane:Render()
-			end
-		elseif key == "pricingSource" then
+		local checkbox = Pane.toolbarCheckboxes and Pane.toolbarCheckboxes[key]
+		if checkbox then
+			checkbox:SetChecked(value)
+		end
+		if key == "pricingSource" then
 			Pane:Rebuild()
 		elseif Pane.active then
-			Pane:Render()
+			Pane:Render(true)
 		end
 	end)
 end

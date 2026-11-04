@@ -8,6 +8,9 @@ ns.L = setmetatable({
 
 	OPTION_ALLOW_CONCENTRATION = "Allow concentration",
 	OPTION_ALLOW_CONCENTRATION_DESC = "Lets the Craft buttons spend concentration. When unticked, orders that need concentration to reach their required quality cannot be crafted from the list and sink to the bottom.",
+	OPTION_ALLOW_UNPROFITABLE = "Allow unprofitable crafts",
+	OPTION_ALLOW_UNPROFITABLE_DESC = "Lets the Craft buttons craft orders whose estimated profit is negative. When unticked, those orders cannot be crafted from the list and sink to the bottom.",
+	REASON_UNPROFITABLE_NOT_ALLOWED = "Loses gold. Tick \"Allow unprofitable crafts\" to craft this order.",
 	OPTION_PRIORITY_HEADER = "List priority",
 	OPTION_PRIORITY_DESC = "Orders you cannot craft always sink to the bottom. These options shape the order of everything above them, before the selected column sort is applied.",
 	OPTION_PRIORITIZE_NON_CONCENTRATION = "Prioritize non-concentration",

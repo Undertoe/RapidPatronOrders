@@ -13,7 +13,8 @@ list with a profit-ranked list and one-click crafting.
   Profit, Time) to sort; click again to reverse it.
 - **Priority tiers.** Orders you cannot craft always sink to the bottom.
   Above them, you can prioritize orders that need no concentration and orders
-  that are profitable. Your claimed order stays pinned to the top.
+  that are profitable. Rows never move while a craft is in progress, so you
+  can click the same spot repeatedly.
 - **Rapid craft buttons.** Craft (claims the order) → Craft (crafts it) →
   Complete, all clicked in the same spot. While an order is claimed, Release
   appears above that button. Materials you already own are used first, as
@@ -21,6 +22,9 @@ list with a profit-ranked list and one-click crafting.
 - **Allow concentration** (off by default). Orders that need concentration to
   reach their quality can only be crafted from the list when this is ticked.
   The checkbox is on the Patron list and in the options panel.
+- **Allow unprofitable crafts** (off by default). Orders with a negative
+  estimated profit can only be crafted from the list when this is ticked.
+  It sits next to Allow concentration and is also in the options panel.
 - **Augment rune highlight.** Orders that reward a Void-Touched Augment Rune
   get a pulsing purple outline.
 

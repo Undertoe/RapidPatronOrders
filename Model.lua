@@ -21,18 +21,52 @@ local function ReagentItemID(entry)
 	return entry.itemID
 end
 
+-- Reagent quality tier, or 0 when the item has none. Midnight reagents are not
+-- always answered by the direct lookup, so fall back to the quality chat-icon
+-- atlas name (its tier number) and then the crafted-quality lookup.
 local function ReagentQuality(itemID)
-	local getQuality = C_TradeSkillUI.GetItemReagentQualityByItemInfo
-	local quality = getQuality and getQuality(itemID)
-	return type(quality) == "number" and quality or 0
+	local direct = C_TradeSkillUI.GetItemReagentQualityByItemInfo
+	local quality = direct and direct(itemID)
+	if type(quality) == "number" and quality > 0 then
+		return quality
+	end
+
+	local infoLookup = C_TradeSkillUI.GetItemReagentQualityInfo
+	local info = infoLookup and infoLookup(itemID)
+	local atlas = type(info) == "table" and info.iconChat
+	if type(atlas) == "string" then
+		local tier = tonumber(atlas:match("Tier(%d+)"))
+		if tier and tier > 0 then
+			return tier
+		end
+	end
+
+	local crafted = C_TradeSkillUI.GetItemCraftedQualityByItemInfo
+	quality = crafted and crafted(itemID)
+	return type(quality) == "number" and quality > 0 and quality or 0
 end
 
+-- Carries the item both nested ("reagent", the current CraftingReagentInfo
+-- shape) and at the top level, so either reader of the struct finds it.
 local function NewReagent(itemID, dataSlotIndex, quantity)
 	return {
 		reagent = { itemID = itemID },
+		itemID = itemID,
 		dataSlotIndex = dataSlotIndex,
 		quantity = quantity,
 	}
+end
+
+-- Lowest quality tier the recipe can produce. An order asking for this tier
+-- or less is satisfied by any craft, so it has no real quality requirement.
+local function LowestRecipeQuality(recipeInfo)
+	local lowest
+	for tier, qualityID in pairs(recipeInfo.qualityIDs or EMPTY) do
+		if type(tier) == "number" and tier > 0 and qualityID then
+			lowest = lowest and math.min(lowest, tier) or tier
+		end
+	end
+	return lowest or 0
 end
 
 function Model.GetCurrencyQuantity(currencyID)
@@ -45,21 +79,32 @@ end
 -- Returns the required slots we must fill ourselves, plus the reagents the
 -- patron already supplies (needed for accurate quality checks).
 local function CollectSlots(schematic, rawOrder)
+	local slotSchematics = schematic and schematic.reagentSlotSchematics or EMPTY
+	local schematicBySlot = {}
+	for _, slotSchematic in ipairs(slotSchematics) do
+		schematicBySlot[slotSchematic.slotIndex] = slotSchematic
+	end
+
+	-- Only patron reagents in quality (modified-reagent) slots go to the
+	-- quality check, using the recipe's data-slot index, the same set the
+	-- game's own order view sends. Plain basic reagents make it answer nil.
 	local coveredSlots = {}
 	local supplied = {}
 	for _, suppliedReagent in ipairs(rawOrder.reagents or EMPTY) do
-		if suppliedReagent.slotIndex then
-			coveredSlots[suppliedReagent.slotIndex] = true
+		local slotIndex = suppliedReagent.slotIndex
+		if slotIndex then
+			coveredSlots[slotIndex] = true
 		end
+		local slotSchematic = slotIndex and schematicBySlot[slotIndex]
 		local info = suppliedReagent.reagentInfo
 		local itemID = ReagentItemID(info)
-		if itemID and info.dataSlotIndex then
-			supplied[#supplied + 1] = NewReagent(itemID, info.dataSlotIndex, info.quantity or 0)
+		if itemID and slotSchematic and slotSchematic.dataSlotType == MUTABLE_SLOT then
+			supplied[#supplied + 1] = NewReagent(itemID, slotSchematic.dataSlotIndex, info.quantity or 0)
 		end
 	end
 
 	local slots = {}
-	for _, slotSchematic in ipairs(schematic and schematic.reagentSlotSchematics or EMPTY) do
+	for _, slotSchematic in ipairs(slotSchematics) do
 		if slotSchematic.required and not coveredSlots[slotSchematic.slotIndex] then
 			local slot = {
 				slotIndex = slotSchematic.slotIndex,
@@ -147,6 +192,24 @@ function Model.MeetsQuality(order, operationInfo)
 	return operationInfo ~= nil and (operationInfo.craftingQuality or 0) >= order.minQuality
 end
 
+-- Can these reagents reach the order's quality? Returns ok plus the
+-- concentration cost and currency (cost 0 when concentration is not used).
+-- Concentration raises the result one quality tier, but the operation info
+-- the game returns does not include that boost, so with concentration the
+-- check is "one tier short and the recipe has a concentration cost".
+function Model.ReachesQuality(order, reagents, useConcentration)
+	local info = Model.GetOperationInfo(order, reagents, false)
+	if not info then
+		return false
+	end
+	if not useConcentration then
+		return Model.MeetsQuality(order, info), 0, info.concentrationCurrencyID
+	end
+	local cost = info.concentrationCost or 0
+	local reached = cost > 0 and (info.craftingQuality or 0) + 1 >= order.minQuality
+	return reached, cost, info.concentrationCurrencyID
+end
+
 -- Tries, in order: cheapest materials, top-quality materials, then each with
 -- concentration. The first plan that reaches the required quality wins, so
 -- concentration is only spent when gold alone cannot reach the quality.
@@ -165,12 +228,12 @@ local function ChoosePlan(order, slots, supplied)
 	}
 	for _, attempt in ipairs(attempts) do
 		local plan, useConcentration = attempt[1], attempt[2]
-		local info = Model.GetOperationInfo(order, plan.checkReagents, useConcentration)
-		if Model.MeetsQuality(order, info) then
+		local reached, cost, currencyID = Model.ReachesQuality(order, plan.checkReagents, useConcentration)
+		if reached then
 			plan.useConcentration = useConcentration
 			plan.usesBestMaterials = plan == best
-			plan.concentrationCost = useConcentration and (info.concentrationCost or 0) or 0
-			plan.concentrationCurrencyID = info.concentrationCurrencyID
+			plan.concentrationCost = cost
+			plan.concentrationCurrencyID = currencyID
 			return plan
 		end
 	end
@@ -248,6 +311,9 @@ function Model.Build(rawOrder)
 		order.isKnown = not not recipeInfo.learned
 		order.supportsQualities = not not recipeInfo.supportsQualities
 		order.maxQuality = recipeInfo.maxQuality
+		if order.minQuality <= LowestRecipeQuality(recipeInfo) then
+			order.minQuality = 0
+		end
 	else
 		order.name = rawOrder.spellID and C_Spell.GetSpellName(rawOrder.spellID)
 		order.icon = rawOrder.spellID and C_Spell.GetSpellTexture(rawOrder.spellID)
@@ -301,6 +367,9 @@ function Model.GetBlocker(order)
 	elseif order.needsConcentration and not ns.GetConfig("allowConcentration") then
 		-- "Allow concentration" gates spending it; such orders sink.
 		return L.REASON_CONCENTRATION_NOT_ALLOWED
+	elseif order.profit < 0 and not ns.GetConfig("allowUnprofitable") then
+		-- Uses the estimate even when some prices are missing.
+		return L.REASON_UNPROFITABLE_NOT_ALLOWED
 	elseif order.needsConcentration
 		and Model.GetCurrencyQuantity(order.plan.concentrationCurrencyID) < order.plan.concentrationCost then
 		return L.REASON_CONCENTRATION
@@ -359,12 +428,11 @@ function Model.BuildOwnedReagents(order)
 	end
 
 	if order.minQuality > 0 and order.supportsQualities then
-		local info = Model.GetOperationInfo(order, checkReagents, plan.useConcentration)
-		if not Model.MeetsQuality(order, info) then
+		local reached, cost, currencyID = Model.ReachesQuality(order, checkReagents, plan.useConcentration)
+		if not reached then
 			return nil
 		end
-		if plan.useConcentration
-			and Model.GetCurrencyQuantity(info.concentrationCurrencyID) < (info.concentrationCost or 0) then
+		if plan.useConcentration and Model.GetCurrencyQuantity(currencyID) < cost then
 			return nil
 		end
 	end
@@ -396,9 +464,12 @@ local function SortValue(order, sortKey)
 	return order.profit
 end
 
--- Priority, highest first: your claimed order, craftable before blocked,
--- then the optional non-concentration / profitable tiers, then the column sort.
-function Model.Sort(orders, claimedOrderID)
+-- Priority, highest first: craftable before blocked, then the optional
+-- non-concentration / profitable tiers, then the column sort.
+-- "frozenRanks" (orderID string -> position) keeps the current on-screen order
+-- while a craft is in progress so rows never move under the mouse; orders not
+-- yet on screen go after them in normal priority order.
+function Model.Sort(orders, frozenRanks)
 	local sortKey = ns.GetConfig("sortKey")
 	local ascending = ns.GetConfig("sortAscending")
 	local preferNoConcentration = ns.GetConfig("prioritizeNonConcentration")
@@ -406,12 +477,17 @@ function Model.Sort(orders, claimedOrderID)
 
 	for _, order in ipairs(orders) do
 		order.blocker = Model.GetBlocker(order)
-		order.isClaimed = ns.IsSameOrderID(order.orderID, claimedOrderID)
+		order.frozenRank = frozenRanks and frozenRanks[tostring(order.orderID)] or nil
 	end
 
 	table.sort(orders, function(left, right)
-		if left.isClaimed ~= right.isClaimed then
-			return left.isClaimed
+		if frozenRanks then
+			local leftRank, rightRank = left.frozenRank, right.frozenRank
+			if leftRank and rightRank then
+				return leftRank < rightRank
+			elseif leftRank or rightRank then
+				return leftRank ~= nil
+			end
 		end
 		local leftBlocked, rightBlocked = left.blocker ~= nil, right.blocker ~= nil
 		if leftBlocked ~= rightBlocked then
