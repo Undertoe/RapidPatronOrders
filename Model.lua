@@ -393,10 +393,6 @@ function Model.GetBlocker(order)
 		return L.REASON_QUALITY
 	elseif IsOnCooldown(order.recipeID) then
 		return L.REASON_COOLDOWN
-	end
-	local missingName, owned, needed = FindMissingMaterial(order)
-	if missingName then
-		return L.REASON_MISSING_MATERIALS:format(missingName, owned, needed), true
 	elseif order.needsConcentration and not ns.GetConfig("allowConcentration") then
 		-- "Allow concentration" gates spending it; such orders sink.
 		return L.REASON_CONCENTRATION_NOT_ALLOWED
@@ -406,6 +402,11 @@ function Model.GetBlocker(order)
 	elseif order.needsConcentration
 		and Model.GetCurrencyQuantity(order.plan.concentrationCurrencyID) < order.plan.concentrationCost then
 		return L.REASON_CONCENTRATION
+	end
+	-- Checked last so every other reason (and its dimmed, sunk row) wins.
+	local missingName, owned, needed = FindMissingMaterial(order)
+	if missingName then
+		return L.REASON_MISSING_MATERIALS:format(missingName, owned, needed), true
 	end
 	return nil
 end
