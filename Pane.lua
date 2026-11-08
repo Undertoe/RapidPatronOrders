@@ -413,7 +413,8 @@ end
 
 local function UpdateRow(row, order)
 	row.order = order
-	local blocker = Model.GetBlocker(order)
+	-- Missing materials only disable the button; the row keeps full color.
+	local blocker, keepsPosition = Model.GetBlocker(order)
 
 	row.background:SetColorTexture(1, 1, 1, (order.listIndex or 1) % 2 == 0 and 0.03 or 0.012)
 	row.icon:SetTexture(order.icon or 134400)
@@ -437,7 +438,7 @@ local function UpdateRow(row, order)
 	row.timeText:SetText(FormatTimeLeft(order.expirationTime))
 
 	SetGlowShown(row.glow, not not order.reward.hasAugmentRune)
-	row:SetAlpha(blocker and 0.5 or 1)
+	row:SetAlpha((blocker and not keepsPosition) and 0.5 or 1)
 	UpdateRowButtons(row)
 end
 
