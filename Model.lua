@@ -349,8 +349,37 @@ local function IsOnCooldown(recipeID)
 	return not (maxCharges and maxCharges > 0 and charges and charges > 0)
 end
 
+local function OwnedCount(itemID)
+	return C_Item.GetItemCount(itemID, true, false, true, true)
+end
+
+-- First required material you do not own enough of (any quality counts),
+-- as name, owned, needed. Bags, bank, and warband bank are included.
+local function FindMissingMaterial(order)
+	for index, slot in ipairs(order.slots or EMPTY) do
+		if slot.quantity > 0 and #slot.options > 0 then
+			local owned = 0
+			for _, option in ipairs(slot.options) do
+				owned = owned + OwnedCount(option.itemID)
+			end
+			if owned < slot.quantity then
+				local itemID = (order.plan.picks[index] or slot.options[1]).itemID
+				local name = C_Item.GetItemNameByID(itemID)
+				if not name then
+					C_Item.RequestLoadItemDataByID(itemID)
+					name = L.UNKNOWN_ITEM:format(itemID)
+				end
+				return name, owned, slot.quantity
+			end
+		end
+	end
+	return nil
+end
+
 -- Reasons the order cannot be crafted at all. Evaluated live because
--- concentration and cooldowns change while the list is open.
+-- concentration, cooldowns, and owned materials change while the list is open.
+-- The second return is true when the blocked order keeps its sort position
+-- (missing materials only), so the list does not reshuffle as bags change.
 function Model.GetBlocker(order)
 	if not order.recipeID then
 		return L.REASON_NO_RECIPE
@@ -373,6 +402,11 @@ function Model.GetBlocker(order)
 	elseif order.needsConcentration
 		and Model.GetCurrencyQuantity(order.plan.concentrationCurrencyID) < order.plan.concentrationCost then
 		return L.REASON_CONCENTRATION
+	end
+	-- Checked last so every other reason (and its dimmed, sunk row) wins.
+	local missingName, owned, needed = FindMissingMaterial(order)
+	if missingName then
+		return L.REASON_MISSING_MATERIALS:format(missingName, owned, needed), true
 	end
 	return nil
 end
@@ -476,7 +510,9 @@ function Model.Sort(orders, frozenRanks)
 	local preferProfitable = ns.GetConfig("prioritizeProfitable")
 
 	for _, order in ipairs(orders) do
-		order.blocker = Model.GetBlocker(order)
+		local blocker, keepsPosition = Model.GetBlocker(order)
+		order.blocker = blocker
+		order.sinks = blocker ~= nil and not keepsPosition
 		order.frozenRank = frozenRanks and frozenRanks[tostring(order.orderID)] or nil
 	end
 
@@ -489,9 +525,8 @@ function Model.Sort(orders, frozenRanks)
 				return leftRank ~= nil
 			end
 		end
-		local leftBlocked, rightBlocked = left.blocker ~= nil, right.blocker ~= nil
-		if leftBlocked ~= rightBlocked then
-			return rightBlocked
+		if left.sinks ~= right.sinks then
+			return right.sinks
 		end
 		if preferNoConcentration and left.needsConcentration ~= right.needsConcentration then
 			return right.needsConcentration
