@@ -935,6 +935,12 @@ function Pane:InstallEvents()
 			Pane:ScheduleRender()
 		end
 	end)
+	ns.RegisterEvent("BAG_UPDATE_DELAYED", function()
+		if Pane.active then
+			-- Owned materials changed; "missing materials" blockers may differ.
+			Pane:ScheduleRender()
+		end
+	end)
 	ns.RegisterEvent("TRADE_SKILL_DATA_SOURCE_CHANGED", function()
 		if Pane.active then
 			Pane.orders = {}
